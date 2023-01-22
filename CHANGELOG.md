@@ -8,6 +8,10 @@ And please only add new entries to the top of this list, right below the `# Unre
 
 # Unreleased
 
+- Add `Window::is_minimized`.
+- On X11, fix errors handled during `register_xlib_error_hook` invocation bleeding into winit.
+- Add `Window::has_focus`.
+- On Windows, fix `Window::set_minimized(false)` not working for windows minimized by `Win + D` hotkey.
 - **Breaking:** On Web, touch input no longer fires `WindowEvent::Cursor*`, `WindowEvent::MouseInput`, or `DeviceEvent::MouseMotion` like other platforms, but instead it fires `WindowEvent::Touch`.
 - **Breaking:** Removed platform specific `WindowBuilder::with_parent` API in favor of `WindowBuilder::with_parent_window`.
 - On Windows, retain `WS_MAXIMIZE` window style when un-minimizing a maximized window.
@@ -36,7 +40,7 @@ And please only add new entries to the top of this list, right below the `# Unre
 - **Breaking:** Split the `platform::unix` module into `platform::x11` and `platform::wayland`. The extension types are similarly renamed.
 - **Breaking:**: Removed deprecated method `platform::unix::WindowExtUnix::is_ready`.
 - Removed `parking_lot` dependency.
-- **Breaking:** On macOS, add support for two-finger touchpad magnification and rotation gestures with new events `WindowEvent::TouchpadMagnify` and `WindowEvent::TouchpadRotate`.
+- **Breaking:** On macOS, add support for two-finger touchpad magnification and rotation gestures with new events `WindowEvent::TouchpadMagnify` and `WindowEvent::TouchpadRotate`. Also add support for touchpad smart-magnification gesture with a new event `WindowEvent::SmartMagnify`.
 - **Breaking:** On web, the `WindowBuilderExtWebSys::with_prevent_default` setting (enabled by default), now additionally prevents scrolling of the webpage in mobile browsers, previously it only disabled scrolling on desktop.
 - On Wayland, `wayland-csd-adwaita` now uses `ab_glyph` instead of `crossfont` to render the title for decorations.
 - On Wayland, a new `wayland-csd-adwaita-crossfont` feature was added to use `crossfont` instead of `ab_glyph` for decorations.
@@ -50,7 +54,14 @@ And please only add new entries to the top of this list, right below the `# Unre
 - **Breaking:** On Android, switched to using [`android-activity`](https://github.com/rib/android-activity) crate as a glue layer instead of [`ndk-glue`](https://github.com/rust-windowing/android-ndk-rs/tree/master/ndk-glue). See [README.md#Android](https://github.com/rust-windowing/winit#Android) for more details. ([#2444](https://github.com/rust-windowing/winit/pull/2444))
 - **Breaking:** Removed support for `raw-window-handle` version `0.4`
 - On Wayland, `RedrawRequested` not emitted during resize.
+- Add a `set_wait_timeout` function to `ControlFlow` to allow waiting for a `Duration`.
+- **Breaking:** Remove the unstable `xlib_xconnection()` function from the private interface.
 - Added Orbital support for Redox OS
+- On X11, added `drag_resize_window` method.
+- Added `Window::set_transparent` to provide a hint about transparency of the window on Wayland and macOS.
+- On macOS, fix the mouse buttons other than left/right/middle being reported as middle.
+- On Wayland, support fractional scaling via the wp-fractional-scale protocol.
+- On web, fix removal of mouse event listeners from the global object upon window distruction.
 
 # 0.27.5
 
@@ -158,6 +169,7 @@ And please only add new entries to the top of this list, right below the `# Unre
 - On Android, upgrade `ndk` and `ndk-glue` dependencies to the recently released `0.7.0`.
 - All platforms can now be relied on to emit a `Resumed` event. Applications are recommended to lazily initialize graphics state and windows on first resume for portability.
 - **Breaking:**: Reverse horizontal scrolling sign in `MouseScrollDelta` to match the direction of vertical scrolling. A positive X value now means moving the content to the right. The meaning of vertical scrolling stays the same: a positive Y value means moving the content down.
+- On MacOS, fix deadlock when calling `set_maximized` from event loop.
 
 # 0.26.1 (2022-01-05)
 
