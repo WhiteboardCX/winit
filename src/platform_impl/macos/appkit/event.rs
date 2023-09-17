@@ -156,6 +156,9 @@ extern_methods!(
         #[method_id(charactersIgnoringModifiers)]
         pub fn charactersIgnoringModifiers(&self) -> Option<Id<NSString>>;
 
+        #[method(isEnteringProximity)]
+        pub fn is_entering_proximity(&self) -> bool;
+
         pub fn lshift_pressed(&self) -> bool {
             let raw_modifiers = self.modifierFlags().bits() as u32;
             raw_modifiers & NX_DEVICELSHIFTKEYMASK != 0

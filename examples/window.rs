@@ -22,7 +22,7 @@ fn main() -> Result<(), impl std::error::Error> {
 
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::Wait);
-        println!("{event:?}");
+        // println!("{event:?}");
 
         match event {
             Event::WindowEvent { event, window_id } if window_id == window.id() => match event {

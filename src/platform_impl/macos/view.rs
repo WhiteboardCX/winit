@@ -794,6 +794,17 @@ declare_class!(
             trace_scope!("acceptsFirstMouse:");
             self.state.accepts_first_mouse
         }
+
+        #[method(tabletProximity:)]
+        fn tablet_proximity(&self, event: &NSEvent) {
+            let prox = event.is_entering_proximity();
+            println!("TABLET PROXIMITY {prox}");
+        }
+
+        #[method(tabletPoint:)]
+        fn tablet_point(&self, event: &NSEvent) {
+            println!("TABLET POINT");
+        }
     }
 );
 
