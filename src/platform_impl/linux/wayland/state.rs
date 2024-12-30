@@ -35,6 +35,8 @@ use crate::platform_impl::wayland::types::xdg_activation::XdgActivationState;
 use crate::platform_impl::wayland::window::{WindowRequests, WindowState};
 use crate::platform_impl::wayland::WindowId;
 
+use super::types::wp_tablet::TabletManager;
+
 /// Winit's Wayland state.
 pub struct WinitState {
     /// The WlRegistry.
@@ -116,6 +118,8 @@ pub struct WinitState {
 
     /// Whether the user initiated a wake up.
     pub proxy_wake_up: bool,
+
+    pub tablet_manager: Option<TabletManager>
 }
 
 impl WinitState {
@@ -156,6 +160,9 @@ impl WinitState {
                 (None, None)
             };
 
+        //TODO handle None
+        let tablet_manager = Some(TabletManager::new(globals, queue_handle).unwrap());
+
         let shm = Shm::bind(globals, queue_handle).map_err(|err| os_error!(err))?;
         let custom_cursor_pool = Arc::new(Mutex::new(SlotPool::new(2, &shm).unwrap()));
 
@@ -178,6 +185,7 @@ impl WinitState {
             viewporter_state,
             fractional_scaling_manager,
             kwin_blur_manager: KWinBlurManager::new(globals, queue_handle).ok(),
+            tablet_manager,
 
             seats,
             text_input_state: TextInputState::new(globals, queue_handle).ok(),
