@@ -527,8 +527,16 @@ pub enum PointerKind {
     ///
     /// **macOS:** Unsupported.
     Touch(FingerId),
-    Tool,
+    Tool(ToolType),
     Unknown,
+}
+
+/// TODO is there even hardware where we need these?
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+pub enum ToolType {
+    Pen,
+    Eraser,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -553,7 +561,7 @@ pub struct ToolState {
     ///
     /// **Web:** Has no mechanism to detect support, so this will always be [`Some`] with a value
     /// of 0.
-    pub twist: Option<u16>,
+    pub twist: Option<f64>,
     /// The plane angle in degrees. [`None`] means backend or device has no support.
     ///
     /// ## Platform-specific
@@ -568,6 +576,7 @@ pub struct ToolState {
     /// **Web:** Has no mechanism to detect device support, so this will always be [`Some`] with
     /// default values unless browser support is lacking.
     pub angle: Option<ToolAngle>,
+    pub typ: ToolType,
 }
 
 impl ToolState {
@@ -591,7 +600,7 @@ impl ToolState {
 }
 
 /// The plane angle in degrees of a tool.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct ToolTilt {
     /// The plane angle in degrees between the surface Y-Z plane and the plane containing the tool
@@ -607,7 +616,7 @@ pub struct ToolTilt {
     ///   </a>
     ///   file.
     /// </sub>
-    pub x: i8,
+    pub x: f64,
     /// The plane angle in degrees between the surface X-Z plane and the plane containing the tool
     /// and the surface X axis. Positive values are towards the user. In the range of -90 to
     /// 90. 0 means the tool is perpendicular to the surface and is the default.
@@ -621,7 +630,7 @@ pub struct ToolTilt {
     ///   </a>
     ///   file.
     /// </sub>
-    pub y: i8,
+    pub y: f64,
 }
 
 impl ToolTilt {
@@ -633,41 +642,42 @@ impl ToolTilt {
         const PI_0_5: f64 = FRAC_PI_2;
         const PI_1_5: f64 = 3. * FRAC_PI_2;
         const PI_2: f64 = 2. * PI;
+        const EPS: f64 = 1e-10;
 
         let x = LazyCell::new(|| f64::from(self.x).to_radians());
         let y = LazyCell::new(|| f64::from(self.y).to_radians());
 
         let mut azimuth = 0.;
 
-        if self.x == 0 {
-            match self.y.cmp(&0) {
-                Ordering::Greater => azimuth = PI_0_5,
-                Ordering::Less => azimuth = PI_1_5,
-                Ordering::Equal => (),
+        if self.x.abs() < EPS {
+            if self.y > EPS {
+                azimuth = PI_0_5
+            } else if self.y < -EPS {
+                azimuth = PI_1_5
             }
-        } else if self.y == 0 {
-            if self.x < 0 {
+        } else if self.y.abs() < EPS {
+            if self.x < -EPS {
                 azimuth = PI;
             }
-        } else if self.x.abs() == 90 || self.y.abs() == 90 {
+        } else if (self.x.abs() - 90.).abs() < EPS || (self.y.abs() - 90.).abs() < EPS {
             // not enough information to calculate azimuth
             azimuth = 0.;
         } else {
             // Non-boundary case: neither tiltX nor tiltY is equal to 0 or +-90
             azimuth = f64::atan2(y.tan(), x.tan());
 
-            if azimuth < 0. {
+            if azimuth < -EPS {
                 azimuth += PI_2;
             }
         }
 
         let altitude;
 
-        if self.x.abs() == 90 || self.y.abs() == 90 {
+        if (self.x.abs() - 90.).abs() < EPS || (self.y.abs() - 90.).abs() < EPS {
             altitude = 0.;
-        } else if self.x == 0 {
+        } else if self.x.abs() < EPS {
             altitude = PI_0_5 - y.abs();
-        } else if self.y == 0 {
+        } else if self.y.abs() < EPS {
             altitude = PI_0_5 - x.abs();
         } else {
             // Non-boundary case: neither tiltX nor tiltY is equal to 0 or +-90
@@ -763,7 +773,7 @@ impl ToolAngle {
             y = f64::atan(f64::sin(self.azimuth) / altitude);
         }
 
-        ToolTilt { x: x.to_degrees().round() as i8, y: y.to_degrees().round() as i8 }
+        ToolTilt { x: x.to_degrees(), y: y.to_degrees() }
     }
 }
 
@@ -823,8 +833,8 @@ impl From<PointerSource> for PointerKind {
         match source {
             PointerSource::Mouse => Self::Mouse,
             PointerSource::Touch { finger_id, .. } => Self::Touch(finger_id),
-            PointerSource::Tool(..) => Self::Tool,
-            PointerSource::Unknown => Self::Unknown
+            PointerSource::Tool(ToolState { typ, .. }) => Self::Tool(typ),
+            PointerSource::Unknown => Self::Unknown,
         }
     }
 }
@@ -870,8 +880,8 @@ impl ButtonSource {
                 ToolButton::Button1 => MouseButton::Right,
                 ToolButton::Button2 => MouseButton::Middle,
                 ToolButton::Button3 => MouseButton::Back,
-                ToolButton::Other(button) => MouseButton::Other(button)
-            }
+                ToolButton::Other(button) => MouseButton::Other(button),
+            },
         }
     }
 }
@@ -1580,7 +1590,7 @@ mod tests {
         })
     }
 
-        #[test]
+    #[test]
     fn test_tilt_angle_conversions() {
         use std::f64::consts::*;
 
@@ -1588,40 +1598,57 @@ mod tests {
 
         // See <https://github.com/web-platform-tests/wpt/blob/5af3e9c2a2aba76ade00f0dbc3486e50a74a4506/pointerevents/pointerevent_tiltX_tiltY_to_azimuth_altitude.html#L11-L23>.
         const TILT_TO_ANGLE: &[(ToolTilt, ToolAngle)] = &[
-            (ToolTilt { x: 0, y: 0 }, ToolAngle { altitude: FRAC_PI_2, azimuth: 0. }),
-            (ToolTilt { x: 0, y: 90 }, ToolAngle { altitude: 0., azimuth: FRAC_PI_2 }),
-            (ToolTilt { x: 0, y: -90 }, ToolAngle { altitude: 0., azimuth: 3. * FRAC_PI_2 }),
-            (ToolTilt { x: 90, y: 0 }, ToolAngle { altitude: 0., azimuth: 0. }),
-            (ToolTilt { x: 90, y: 90 }, ToolAngle { altitude: 0., azimuth: 0. }),
-            (ToolTilt { x: 90, y: -90 }, ToolAngle { altitude: 0., azimuth: 0. }),
-            (ToolTilt { x: -90, y: 0 }, ToolAngle { altitude: 0., azimuth: PI }),
-            (ToolTilt { x: -90, y: 90 }, ToolAngle { altitude: 0., azimuth: 0. }),
-            (ToolTilt { x: -90, y: -90 }, ToolAngle { altitude: 0., azimuth: 0. }),
-            (ToolTilt { x: 0, y: 45 }, ToolAngle { altitude: FRAC_PI_4, azimuth: FRAC_PI_2 }),
-            (ToolTilt { x: 0, y: -45 }, ToolAngle { altitude: FRAC_PI_4, azimuth: 3. * FRAC_PI_2 }),
-            (ToolTilt { x: 45, y: 0 }, ToolAngle { altitude: FRAC_PI_4, azimuth: 0. }),
-            (ToolTilt { x: -45, y: 0 }, ToolAngle { altitude: FRAC_PI_4, azimuth: PI }),
+            (ToolTilt { x: 0., y: 0. }, ToolAngle { altitude: FRAC_PI_2, azimuth: 0. }),
+            (ToolTilt { x: 0., y: 90. }, ToolAngle { altitude: 0., azimuth: FRAC_PI_2 }),
+            (ToolTilt { x: 0., y: -90. }, ToolAngle { altitude: 0., azimuth: 3. * FRAC_PI_2 }),
+            (ToolTilt { x: 90., y: 0. }, ToolAngle { altitude: 0., azimuth: 0. }),
+            (ToolTilt { x: 90., y: 90. }, ToolAngle { altitude: 0., azimuth: 0. }),
+            (ToolTilt { x: 90., y: -90. }, ToolAngle { altitude: 0., azimuth: 0. }),
+            (ToolTilt { x: -90., y: 0. }, ToolAngle { altitude: 0., azimuth: PI }),
+            (ToolTilt { x: -90., y: 90. }, ToolAngle { altitude: 0., azimuth: 0. }),
+            (ToolTilt { x: -90., y: -90. }, ToolAngle { altitude: 0., azimuth: 0. }),
+            (ToolTilt { x: 0., y: 45. }, ToolAngle { altitude: FRAC_PI_4, azimuth: FRAC_PI_2 }),
+            (
+                ToolTilt { x: 0., y: -45. },
+                ToolAngle { altitude: FRAC_PI_4, azimuth: 3. * FRAC_PI_2 },
+            ),
+            (ToolTilt { x: 45., y: 0. }, ToolAngle { altitude: FRAC_PI_4, azimuth: 0. }),
+            (ToolTilt { x: -45., y: 0. }, ToolAngle { altitude: FRAC_PI_4, azimuth: PI }),
         ];
 
+        const EPS: f64 = 1e-10;
+
         for (tilt, angle) in TILT_TO_ANGLE {
-            assert_eq!(tilt.angle(), *angle, "{tilt:?}");
+            let a = tilt.angle();
+            assert!(
+                (a.altitude - angle.altitude).abs() < EPS
+                    && (a.azimuth - angle.azimuth).abs() < EPS,
+                "{a:?} != {angle:?} | case: {tilt:?}"
+            );
         }
 
         // See <https://github.com/web-platform-tests/wpt/blob/5af3e9c2a2aba76ade00f0dbc3486e50a74a4506/pointerevents/pointerevent_tiltX_tiltY_to_azimuth_altitude.html#L38-L46>.
         const ANGLE_TO_TILT: &[(ToolAngle, ToolTilt)] = &[
-            (ToolAngle { altitude: 0., azimuth: 0. }, ToolTilt { x: 90, y: 0 }),
-            (ToolAngle { altitude: FRAC_PI_4, azimuth: 0. }, ToolTilt { x: 45, y: 0 }),
-            (ToolAngle { altitude: FRAC_PI_2, azimuth: 0. }, ToolTilt { x: 0, y: 0 }),
-            (ToolAngle { altitude: 0., azimuth: FRAC_PI_2 }, ToolTilt { x: 0, y: 90 }),
-            (ToolAngle { altitude: FRAC_PI_4, azimuth: FRAC_PI_2 }, ToolTilt { x: 0, y: 45 }),
-            (ToolAngle { altitude: 0., azimuth: PI }, ToolTilt { x: -90, y: 0 }),
-            (ToolAngle { altitude: FRAC_PI_4, azimuth: PI }, ToolTilt { x: -45, y: 0 }),
-            (ToolAngle { altitude: 0., azimuth: 3. * FRAC_PI_2 }, ToolTilt { x: 0, y: -90 }),
-            (ToolAngle { altitude: FRAC_PI_4, azimuth: 3. * FRAC_PI_2 }, ToolTilt { x: 0, y: -45 }),
+            (ToolAngle { altitude: 0., azimuth: 0. }, ToolTilt { x: 90., y: 0. }),
+            (ToolAngle { altitude: FRAC_PI_4, azimuth: 0. }, ToolTilt { x: 45., y: 0. }),
+            (ToolAngle { altitude: FRAC_PI_2, azimuth: 0. }, ToolTilt { x: 0., y: 0. }),
+            (ToolAngle { altitude: 0., azimuth: FRAC_PI_2 }, ToolTilt { x: 0., y: 90. }),
+            (ToolAngle { altitude: FRAC_PI_4, azimuth: FRAC_PI_2 }, ToolTilt { x: 0., y: 45. }),
+            (ToolAngle { altitude: 0., azimuth: PI }, ToolTilt { x: -90., y: 0. }),
+            (ToolAngle { altitude: FRAC_PI_4, azimuth: PI }, ToolTilt { x: -45., y: 0. }),
+            (ToolAngle { altitude: 0., azimuth: 3. * FRAC_PI_2 }, ToolTilt { x: 0., y: -90. }),
+            (
+                ToolAngle { altitude: FRAC_PI_4, azimuth: 3. * FRAC_PI_2 },
+                ToolTilt { x: 0., y: -45. },
+            ),
         ];
 
         for (angle, tilt) in ANGLE_TO_TILT {
-            assert_eq!(angle.tilt(), *tilt, "{angle:?}");
+            let t = angle.tilt();
+            assert!(
+                (t.x - tilt.x).abs() < EPS && (t.y - tilt.y).abs() < EPS,
+                "{t:?} != {tilt:?} | case: {angle:?}"
+            );
         }
     }
 

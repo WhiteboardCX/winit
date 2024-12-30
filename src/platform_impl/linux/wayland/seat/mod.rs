@@ -88,7 +88,6 @@ impl SeatHandler for WinitState {
                 return;
             },
         };
-        println!("NEW CAPABILITY");
 
         match capability {
             SeatCapability::Touch if seat_state.touch.is_none() => {
