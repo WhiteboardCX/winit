@@ -491,8 +491,8 @@ impl ApplicationHandler for Application {
                 info!("Pointer left Window={window_id:?}");
                 window.cursor_left();
             },
-            WindowEvent::PointerMoved { position, .. } => {
-                info!("Moved pointer to {position:?}");
+            WindowEvent::PointerMoved { position, source, .. } => {
+                info!("Moved pointer to {position:?} | source: {source:?}");
                 window.cursor_moved(position);
             },
             WindowEvent::ActivationTokenDone { token: _token, .. } => {

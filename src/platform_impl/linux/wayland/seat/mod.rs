@@ -8,8 +8,8 @@ use sctk::reexports::client::protocol::wl_seat::WlSeat;
 use sctk::reexports::client::protocol::wl_touch::WlTouch;
 use sctk::reexports::client::{Connection, Proxy, QueueHandle};
 use sctk::reexports::protocols::wp::relative_pointer::zv1::client::zwp_relative_pointer_v1::ZwpRelativePointerV1;
-use sctk::reexports::protocols::wp::text_input::zv3::client::zwp_text_input_v3::ZwpTextInputV3;
 use sctk::reexports::protocols::wp::tablet::zv2::client::zwp_tablet_seat_v2::ZwpTabletSeatV2;
+use sctk::reexports::protocols::wp::text_input::zv3::client::zwp_text_input_v3::ZwpTextInputV3;
 use sctk::seat::pointer::{ThemeSpec, ThemedPointer};
 use sctk::seat::{Capability as SeatCapability, SeatHandler, SeatState};
 use tracing::warn;
@@ -59,12 +59,12 @@ pub struct WinitSeatState {
     /// Whether we have pending modifiers.
     modifiers_pending: bool,
 
-    tablet_seat: Option<ZwpTabletSeatV2>
+    /// The tablet seat associated with this seat.
+    tablet_seat: Option<ZwpTabletSeatV2>,
 }
 
 impl WinitSeatState {
     pub fn new() -> Self {
-        println!("WINIT SEAT");
         Default::default()
     }
 }
@@ -143,7 +143,8 @@ impl SeatHandler for WinitState {
         }
 
         if seat_state.tablet_seat.is_none() && self.tablet_manager.is_some() {
-            seat_state.tablet_seat = Some(self.tablet_manager.as_ref().unwrap().tablet_seat(&seat, queue_handle));
+            seat_state.tablet_seat =
+                Some(self.tablet_manager.as_ref().unwrap().tablet_seat(&seat, queue_handle));
         }
     }
 

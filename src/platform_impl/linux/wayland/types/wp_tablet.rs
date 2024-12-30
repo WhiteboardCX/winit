@@ -18,7 +18,6 @@ use sctk::reexports::protocols::wp::tablet::zv2::client::{
     zwp_tablet_tool_v2::{ButtonState, Event as ToolEvent, Type as WlToolType, ZwpTabletToolV2},
     zwp_tablet_v2::{Event as TabletEvent, ZwpTabletV2},
 };
-use sctk::shell::xdg::window::Window;
 use wayland_client::WEnum;
 
 use crate::event::{
@@ -87,7 +86,6 @@ impl Dispatch<ZwpTabletSeatV2, (), WinitState> for TabletManager {
         _: &Connection,
         _: &QueueHandle<WinitState>,
     ) {
-        println!("Tablet seat event: {event:?}");
         match event {
             SeatEvent::ToolAdded { id } => {
                 let mut data: ToolData = Default::default();
@@ -114,7 +112,6 @@ impl Dispatch<ZwpTabletV2, (), WinitState> for TabletManager {
         _: &Connection,
         _: &QueueHandle<WinitState>,
     ) {
-        println!("Tablet event: {event:?}");
         match event {
             TabletEvent::Removed => tablet.destroy(),
             _ => (),
@@ -131,7 +128,6 @@ impl Dispatch<ZwpTabletToolV2, (), WinitState> for TabletManager {
         _: &Connection,
         _: &QueueHandle<WinitState>,
     ) {
-        println!("Tool event: {event:?} {}", tool.id());
         let id = tool.id();
         let data = state.tools.get_mut(&id).unwrap();
         match event {
@@ -194,7 +190,7 @@ impl Dispatch<ZwpTabletToolV2, (), WinitState> for TabletManager {
                 // TODO should we handle the others, too?
                 let typ = match data.typ {
                     Some(WlToolType::Eraser) => ToolType::Eraser,
-                    _ => ToolType::Pen
+                    _ => ToolType::Pen,
                 };
                 if data.entered {
                     data.entered = false;
@@ -219,7 +215,7 @@ impl Dispatch<ZwpTabletToolV2, (), WinitState> for TabletManager {
                         twist: data.rotation,
                         tilt: data.tilt.map(|(x, y)| ToolTilt { x, y }),
                         angle: None,
-                        typ
+                        typ,
                     });
                     state.events_sink.push_window_event(
                         WindowEvent::PointerMoved { device_id, position, primary: true, source },
@@ -237,6 +233,15 @@ impl Dispatch<ZwpTabletToolV2, (), WinitState> for TabletManager {
                         },
                         window_id,
                     );
+                }
+                for (button, btn_state) in data.button_events.iter() {
+                    state.events_sink.push_window_event(WindowEvent::PointerButton {
+                        device_id,
+                        state: *btn_state,
+                        position,
+                        primary: true,
+                        button: ButtonSource::Tool(*button),
+                    }, window_id);
                 }
                 data.button_events.clear();
             },
@@ -258,7 +263,6 @@ impl Dispatch<ZwpTabletPadV2, (), WinitState> for TabletManager {
         _: &Connection,
         _: &QueueHandle<WinitState>,
     ) {
-        println!("Pad event: {event:?}");
         match event {
             PadEvent::Removed => pad.destroy(),
             _ => (),
@@ -274,12 +278,11 @@ impl Dispatch<ZwpTabletPadGroupV2, (), WinitState> for TabletManager {
     fn event(
         _: &mut WinitState,
         _: &ZwpTabletPadGroupV2,
-        event: <ZwpTabletPadGroupV2 as Proxy>::Event,
+        _: <ZwpTabletPadGroupV2 as Proxy>::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<WinitState>,
     ) {
-        println!("Group event: {event:?}");
     }
 
     event_created_child!(WinitState, ZwpTabletPadGroupV2, [
@@ -292,12 +295,11 @@ impl Dispatch<ZwpTabletPadRingV2, (), WinitState> for TabletManager {
     fn event(
         _: &mut WinitState,
         _: &ZwpTabletPadRingV2,
-        event: <ZwpTabletPadRingV2 as Proxy>::Event,
+        _: <ZwpTabletPadRingV2 as Proxy>::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<WinitState>,
     ) {
-        println!("Ring event: {event:?}");
     }
 }
 
@@ -305,12 +307,11 @@ impl Dispatch<ZwpTabletPadStripV2, (), WinitState> for TabletManager {
     fn event(
         _: &mut WinitState,
         _: &ZwpTabletPadStripV2,
-        event: <ZwpTabletPadStripV2 as Proxy>::Event,
+        _: <ZwpTabletPadStripV2 as Proxy>::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<WinitState>,
     ) {
-        println!("Strip event: {event:?}");
     }
 }
 
