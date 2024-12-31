@@ -527,16 +527,8 @@ pub enum PointerKind {
     ///
     /// **macOS:** Unsupported.
     Touch(FingerId),
-    Tool(ToolType),
+    Tool,
     Unknown,
-}
-
-/// TODO is there even hardware where we need these?
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
-pub enum ToolType {
-    Pen,
-    Eraser,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -576,7 +568,6 @@ pub struct ToolState {
     /// **Web:** Has no mechanism to detect device support, so this will always be [`Some`] with
     /// default values unless browser support is lacking.
     pub angle: Option<ToolAngle>,
-    pub typ: ToolType,
 }
 
 impl ToolState {
@@ -833,7 +824,7 @@ impl From<PointerSource> for PointerKind {
         match source {
             PointerSource::Mouse => Self::Mouse,
             PointerSource::Touch { finger_id, .. } => Self::Touch(finger_id),
-            PointerSource::Tool(ToolState { typ, .. }) => Self::Tool(typ),
+            PointerSource::Tool(ToolState { .. }) => Self::Tool,
             PointerSource::Unknown => Self::Unknown,
         }
     }
