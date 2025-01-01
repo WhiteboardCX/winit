@@ -487,6 +487,9 @@ impl ApplicationHandler for Application {
                     self.handle_action_with_window(event_loop, window_id, action);
                 }
             },
+            WindowEvent::PointerEntered { .. } => {
+                info!("Pointer entered Window={window_id:?}");
+            },
             WindowEvent::PointerLeft { .. } => {
                 info!("Pointer left Window={window_id:?}");
                 window.cursor_left();
@@ -543,7 +546,6 @@ impl ApplicationHandler for Application {
             WindowEvent::TouchpadPressure { .. }
             | WindowEvent::HoveredFileCancelled
             | WindowEvent::KeyboardInput { .. }
-            | WindowEvent::PointerEntered { .. }
             | WindowEvent::DroppedFile(_)
             | WindowEvent::HoveredFile(_)
             | WindowEvent::Destroyed

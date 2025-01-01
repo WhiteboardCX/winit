@@ -31,7 +31,10 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
 };
 use windows_sys::Win32::UI::Input::Pointer::{
-    POINTER_FLAG_DOWN, POINTER_FLAG_PRIMARY, POINTER_FLAG_UP, POINTER_FLAG_UPDATE,
+    POINTER_FLAG_DOWN, POINTER_FLAG_FIFTHBUTTON, POINTER_FLAG_FIRSTBUTTON,
+    POINTER_FLAG_FOURTHBUTTON, POINTER_FLAG_INCONTACT, POINTER_FLAG_INRANGE, POINTER_FLAG_NEW,
+    POINTER_FLAG_PRIMARY, POINTER_FLAG_SECONDBUTTON, POINTER_FLAG_THIRDBUTTON, POINTER_FLAG_UP,
+    POINTER_FLAG_UPDATE, POINTER_INFO,
 };
 use windows_sys::Win32::UI::Input::Touch::{
     CloseTouchInputHandle, GetTouchInputInfo, TOUCHEVENTF_DOWN, TOUCHEVENTF_MOVE,
@@ -43,20 +46,21 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetMenu, LoadCursorW, MsgWaitForMultipleObjectsEx, PeekMessageW, PostMessageW,
     RegisterClassExW, RegisterWindowMessageA, SetCursor, SetWindowPos, TranslateMessage,
     CREATESTRUCTW, GWL_STYLE, GWL_USERDATA, HTCAPTION, HTCLIENT, MINMAXINFO, MNC_CLOSE, MSG,
-    MWMO_INPUTAVAILABLE, NCCALCSIZE_PARAMS, PM_REMOVE, PT_TOUCH, QS_ALLINPUT, RI_MOUSE_HWHEEL,
-    RI_MOUSE_WHEEL, SC_MINIMIZE, SC_RESTORE, SIZE_MAXIMIZED, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_NOZORDER, WHEEL_DELTA, WINDOWPOS, WMSZ_BOTTOM, WMSZ_BOTTOMLEFT,
-    WMSZ_BOTTOMRIGHT, WMSZ_LEFT, WMSZ_RIGHT, WMSZ_TOP, WMSZ_TOPLEFT, WMSZ_TOPRIGHT,
-    WM_CAPTURECHANGED, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_ENTERSIZEMOVE,
-    WM_EXITSIZEMOVE, WM_GETMINMAXINFO, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
+    MWMO_INPUTAVAILABLE, NCCALCSIZE_PARAMS, PEN_FLAG_BARREL, PEN_FLAG_ERASER, PEN_FLAG_INVERTED,
+    PEN_MASK_PRESSURE, PEN_MASK_ROTATION, PEN_MASK_TILT_X, PEN_MASK_TILT_Y, PM_REMOVE, PT_PEN,
+    PT_TOUCH, QS_ALLINPUT, RI_MOUSE_HWHEEL, RI_MOUSE_WHEEL, SC_MINIMIZE, SC_RESTORE,
+    SIZE_MAXIMIZED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WHEEL_DELTA, WINDOWPOS,
+    WMSZ_BOTTOM, WMSZ_BOTTOMLEFT, WMSZ_BOTTOMRIGHT, WMSZ_LEFT, WMSZ_RIGHT, WMSZ_TOP, WMSZ_TOPLEFT,
+    WMSZ_TOPRIGHT, WM_CAPTURECHANGED, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED,
+    WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_GETMINMAXINFO, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
     WM_IME_SETCONTEXT, WM_IME_STARTCOMPOSITION, WM_INPUT, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MENUCHAR, WM_MOUSEHWHEEL,
     WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCACTIVATE, WM_NCCALCSIZE, WM_NCCREATE, WM_NCDESTROY,
-    WM_NCLBUTTONDOWN, WM_PAINT, WM_POINTERDOWN, WM_POINTERUP, WM_POINTERUPDATE, WM_RBUTTONDOWN,
-    WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SIZING, WM_SYSCOMMAND,
-    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TOUCH, WM_WINDOWPOSCHANGED, WM_WINDOWPOSCHANGING,
-    WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP, WS_VISIBLE,
+    WM_NCLBUTTONDOWN, WM_PAINT, WM_POINTERDOWN, WM_POINTERENTER, WM_POINTERLEAVE, WM_POINTERUP,
+    WM_POINTERUPDATE, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SETTINGCHANGE,
+    WM_SIZE, WM_SIZING, WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TOUCH, WM_WINDOWPOSCHANGED,
+    WM_WINDOWPOSCHANGING, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSEXW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP, WS_VISIBLE,
 };
 
 use super::window::set_skip_taskbar;
@@ -65,7 +69,8 @@ use crate::application::ApplicationHandler;
 use crate::dpi::{PhysicalPosition, PhysicalSize};
 use crate::error::{EventLoopError, RequestError};
 use crate::event::{
-    Event, FingerId, Force, Ime, RawKeyEvent, SurfaceSizeWriter, TouchPhase, WindowEvent,
+    ButtonSource, ElementState, Event, FingerId, Force, Ime, PointerKind, PointerSource,
+    RawKeyEvent, SurfaceSizeWriter, ToolState, ToolTilt, TouchPhase, WindowEvent,
 };
 use crate::event_loop::{
     ActiveEventLoop as RootActiveEventLoop, ControlFlow, DeviceEvents,
@@ -102,6 +107,7 @@ pub(crate) struct WindowData {
     pub _file_drop_handler: Option<FileDropHandler>,
     pub userdata_removed: Cell<bool>,
     pub recurse_depth: Cell<u32>,
+    pub last_tool_state: Cell<Option<ToolState>>,
 }
 
 impl WindowData {
@@ -1060,7 +1066,7 @@ pub(super) unsafe extern "system" fn public_window_callback(
         (_, WM_CREATE) => unsafe {
             let createstruct = &mut *(lparam as *mut CREATESTRUCTW);
             let initdata = createstruct.lpCreateParams;
-            let initdata = &mut *(initdata as *mut InitData<'_>);
+            let initdata: &mut InitData<'_> = &mut *(initdata as *mut InitData<'_>);
 
             initdata.on_create();
             return DefWindowProcW(window, msg, wparam, lparam);
@@ -2071,6 +2077,7 @@ unsafe fn public_window_callback_inner(
         },
 
         WM_POINTERDOWN | WM_POINTERUPDATE | WM_POINTERUP => {
+            // TODO do we need? | WM_POINTERENTER | WM_POINTERLEAVE
             use crate::event::ElementState::{Pressed, Released};
             use crate::event::{ButtonSource, PointerKind, PointerSource};
 
@@ -2118,7 +2125,7 @@ unsafe fn public_window_callback_inner(
                 // https://docs.microsoft.com/en-us/windows/desktop/api/winuser/nf-winuser-getpointerframeinfohistory
                 // The information retrieved appears in reverse chronological order, with the most
                 // recent entry in the first row of the returned array
-                for pointer_info in pointer_infos.iter().rev() {
+                for pointer_info in pointer_infos.into_iter().rev() {
                     let mut device_rect = mem::MaybeUninit::uninit();
                     let mut display_rect = mem::MaybeUninit::uninit();
 
@@ -2158,103 +2165,21 @@ unsafe fn public_window_callback_inner(
                         continue;
                     }
 
-                    let force = if let PT_TOUCH = pointer_info.pointerType {
-                        let mut touch_info = mem::MaybeUninit::uninit();
-                        util::GET_POINTER_TOUCH_INFO.and_then(|GetPointerTouchInfo| {
-                            match unsafe {
-                                GetPointerTouchInfo(pointer_info.pointerId, touch_info.as_mut_ptr())
-                            } {
-                                0 => None,
-                                _ => normalize_pointer_pressure(unsafe {
-                                    touch_info.assume_init().pressure
-                                }),
-                            }
-                        })
-                    } else {
-                        None
-                    };
-
                     let x = location.x as f64 + x.fract();
                     let y = location.y as f64 + y.fract();
-                    let position = PhysicalPosition::new(x, y);
 
-                    let window_id = WindowId::from_raw(window as usize);
-                    let finger_id = FingerId::from_raw(pointer_info.pointerId as usize);
-                    let primary = util::has_flag(pointer_info.pointerFlags, POINTER_FLAG_PRIMARY);
+                    let data = PointerEventData {
+                        pointer_info,
+                        primary: util::has_flag(pointer_info.pointerFlags, POINTER_FLAG_PRIMARY),
+                        window_id: WindowId::from_raw(window as usize),
+                        position: PhysicalPosition::new(x, y),
+                    };
 
-                    if util::has_flag(pointer_info.pointerFlags, POINTER_FLAG_DOWN) {
-                        userdata.send_event(Event::WindowEvent {
-                            window_id,
-                            event: WindowEvent::PointerEntered {
-                                device_id: None,
-                                primary,
-                                position,
-                                kind: if let PT_TOUCH = pointer_info.pointerType {
-                                    PointerKind::Touch(finger_id)
-                                } else {
-                                    PointerKind::Unknown
-                                },
-                            },
-                        });
-                        userdata.send_event(Event::WindowEvent {
-                            window_id,
-                            event: WindowEvent::PointerButton {
-                                device_id: None,
-                                primary,
-                                state: Pressed,
-                                position,
-                                button: if let PT_TOUCH = pointer_info.pointerType {
-                                    ButtonSource::Touch { finger_id, force }
-                                } else {
-                                    ButtonSource::Unknown(0)
-                                },
-                            },
-                        });
-                    } else if util::has_flag(pointer_info.pointerFlags, POINTER_FLAG_UP) {
-                        userdata.send_event(Event::WindowEvent {
-                            window_id,
-                            event: WindowEvent::PointerButton {
-                                device_id: None,
-                                primary,
-                                state: Released,
-                                position,
-                                button: if let PT_TOUCH = pointer_info.pointerType {
-                                    ButtonSource::Touch { finger_id, force }
-                                } else {
-                                    ButtonSource::Unknown(0)
-                                },
-                            },
-                        });
-                        userdata.send_event(Event::WindowEvent {
-                            window_id,
-                            event: WindowEvent::PointerLeft {
-                                device_id: None,
-                                primary,
-                                position: Some(position),
-                                kind: if let PT_TOUCH = pointer_info.pointerType {
-                                    PointerKind::Touch(finger_id)
-                                } else {
-                                    PointerKind::Unknown
-                                },
-                            },
-                        });
-                    } else if util::has_flag(pointer_info.pointerFlags, POINTER_FLAG_UPDATE) {
-                        userdata.send_event(Event::WindowEvent {
-                            window_id,
-                            event: WindowEvent::PointerMoved {
-                                device_id: None,
-                                primary,
-                                position,
-                                source: if let PT_TOUCH = pointer_info.pointerType {
-                                    PointerSource::Touch { finger_id, force }
-                                } else {
-                                    PointerSource::Unknown
-                                },
-                            },
-                        });
-                    } else {
-                        continue;
-                    }
+                    match pointer_info.pointerType {
+                        PT_TOUCH => handle_pointer_event_touch(userdata, data),
+                        PT_PEN => handle_pointer_event_pen(userdata, data),
+                        _ => (),
+                    };
                 }
 
                 unsafe { SkipPointerFrameMessages(pointer_id) };
@@ -2778,4 +2703,127 @@ fn get_pointer_move_kind(
     } else {
         PointerMoveKind::None
     }
+}
+
+fn handle_pointer_event_pen(userdata: &WindowData, data: PointerEventData) {
+    let pointer_info = data.pointer_info;
+    let mut pen_info = mem::MaybeUninit::uninit();
+    let in_range = util::has_flag(pointer_info.pointerFlags, POINTER_FLAG_INRANGE);
+    let tool_state = util::GET_POINTER_PEN_INFO.and_then(|GetPointerPenInfo| {
+        if unsafe { GetPointerPenInfo(pointer_info.pointerId, pen_info.as_mut_ptr()) != 0 } {
+            let info = unsafe { pen_info.assume_init() };
+            let pen_mask = |mask| {
+                if util::has_flag(info.penMask, mask) {
+                    Some(())
+                } else {
+                    None
+                }
+            };
+            Some(ToolState {
+                contact: util::has_flag(info.pointerInfo.pointerFlags, POINTER_FLAG_INCONTACT),
+                button1: util::has_flag(info.penFlags, PEN_FLAG_ERASER)
+                    || util::has_flag(info.penFlags, PEN_FLAG_INVERTED),
+                button2: util::has_flag(info.penFlags, PEN_FLAG_BARREL),
+                twist: pen_mask(PEN_MASK_ROTATION).map(|_| info.rotation as f64),
+                force: pen_mask(PEN_MASK_PRESSURE)
+                    .and(match info.pressure {
+                        0..=1024 => Some(Force::Normalized(info.pressure as f64 / 1024.)),
+                        _ => None,
+                    })
+                    .unwrap_or(Force::Normalized(1.)),
+                tangential_force: None,
+                angle: None,
+                tilt: pen_mask(PEN_MASK_TILT_X | PEN_MASK_TILT_Y)
+                    .map(|_| ToolTilt { x: info.tiltX as f64, y: info.tiltY as f64 }),
+            })
+        } else {
+            None
+        }
+    });
+    #[cfg(feature = "windows-ink")]
+    let tool_state = tool_state.and_then(|mut t| {
+        let prop = windows::UI::Input::PointerPoint::GetCurrentPoint(pointer_info.pointerId)
+            .and_then(|p| p.Properties())
+            .ok()?;
+        println!("TOOL_STATE {t:?}");
+        t.twist = t.twist.and(prop.Twist().map(|t| t as f64).ok());
+        t.tilt = t
+            .tilt
+            .and(Some(ToolTilt { x: prop.XTilt().ok()? as f64, y: prop.YTilt().ok()? as f64 }));
+        t.force = Force::Normalized(prop.Pressure().unwrap_or(1.) as f64);
+        Some(t)
+    });
+    println!("tool_state {tool_state:?}");
+}
+
+fn handle_pointer_event_touch(userdata: &WindowData, data: PointerEventData) {
+    let pointer_info = data.pointer_info;
+    let window_id = data.window_id;
+    let primary = data.primary;
+    let finger_id = FingerId::from_raw(pointer_info.pointerId as usize);
+    let kind = PointerKind::Touch(finger_id);
+    let position = data.position;
+    let mut touch_info = mem::MaybeUninit::uninit();
+    let force = util::GET_POINTER_TOUCH_INFO.and_then(|GetPointerTouchInfo| {
+        match unsafe { GetPointerTouchInfo(pointer_info.pointerId, touch_info.as_mut_ptr()) } {
+            0 => None,
+            _ => normalize_pointer_pressure(unsafe { touch_info.assume_init().pressure }),
+        }
+    });
+    let button = ButtonSource::Touch { finger_id, force };
+
+    if util::has_flag(pointer_info.pointerFlags, POINTER_FLAG_DOWN) {
+        userdata.send_event(Event::WindowEvent {
+            window_id,
+            event: WindowEvent::PointerEntered { device_id: None, primary, position, kind },
+        });
+        userdata.send_event(Event::WindowEvent {
+            window_id,
+            event: WindowEvent::PointerButton {
+                device_id: None,
+                primary,
+                state: ElementState::Pressed,
+                position,
+                button,
+            },
+        });
+    } else if util::has_flag(pointer_info.pointerFlags, POINTER_FLAG_UP) {
+        userdata.send_event(Event::WindowEvent {
+            window_id,
+            event: WindowEvent::PointerButton {
+                device_id: None,
+                primary,
+                state: ElementState::Released,
+                position,
+                button,
+            },
+        });
+        userdata.send_event(Event::WindowEvent {
+            window_id,
+            event: WindowEvent::PointerLeft {
+                device_id: None,
+                primary,
+                position: Some(position),
+                kind,
+            },
+        });
+    } else if util::has_flag(pointer_info.pointerFlags, POINTER_FLAG_UPDATE) {
+        userdata.send_event(Event::WindowEvent {
+            window_id,
+            event: WindowEvent::PointerMoved {
+                device_id: None,
+                primary,
+                position,
+                source: PointerSource::Touch { finger_id, force },
+            },
+        });
+    }
+}
+
+/// Common data for handling pointer events between pen and touch
+struct PointerEventData {
+    pointer_info: POINTER_INFO,
+    position: PhysicalPosition<f64>,
+    primary: bool,
+    window_id: WindowId,
 }

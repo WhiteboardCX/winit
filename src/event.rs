@@ -35,7 +35,6 @@
 //! [`EventLoop::run_app(...)`]: crate::event_loop::EventLoop::run_app
 //! [`ControlFlow::WaitUntil`]: crate::event_loop::ControlFlow::WaitUntil
 use std::cell::LazyCell;
-use std::cmp::Ordering;
 use std::path::PathBuf;
 use std::sync::{Mutex, Weak};
 #[cfg(not(web_platform))]
@@ -568,6 +567,9 @@ pub struct ToolState {
     /// **Web:** Has no mechanism to detect device support, so this will always be [`Some`] with
     /// default values unless browser support is lacking.
     pub angle: Option<ToolAngle>,
+    pub contact: bool,
+    pub button1: bool,
+    pub button2: bool,
 }
 
 impl ToolState {
