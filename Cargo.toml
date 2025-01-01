@@ -71,7 +71,7 @@ wayland-csd-adwaita-crossfont = ["sctk-adwaita", "sctk-adwaita/crossfont"]
 wayland-csd-adwaita-notitle = ["sctk-adwaita"]
 wayland-dlopen = ["wayland-backend/dlopen"]
 x11 = ["x11-dl", "bytemuck", "percent-encoding", "xkbcommon-dl/x11", "x11rb"]
-windows-ink = ["windows"]
+winrt-pen = ["windows"]
 
 [build-dependencies]
 cfg_aliases = "0.2.1"

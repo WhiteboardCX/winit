@@ -2177,7 +2177,7 @@ unsafe fn public_window_callback_inner(
 
                     match pointer_info.pointerType {
                         PT_TOUCH => handle_pointer_event_touch(userdata, data),
-                        PT_PEN => handle_pointer_event_pen(userdata, data),
+                        PT_PEN => handle_pointer_event_pen(userdata, data).unwrap_or_default(),
                         _ => (),
                     };
                 }
@@ -2705,55 +2705,80 @@ fn get_pointer_move_kind(
     }
 }
 
-fn handle_pointer_event_pen(userdata: &WindowData, data: PointerEventData) {
+fn handle_pointer_event_pen(userdata: &WindowData, data: PointerEventData) -> Option<()> {
+    let kind = PointerKind::Tool;
     let pointer_info = data.pointer_info;
+    let window_id = data.window_id;
+    let primary = data.primary;
+    let position = data.position;
     let mut pen_info = mem::MaybeUninit::uninit();
     let in_range = util::has_flag(pointer_info.pointerFlags, POINTER_FLAG_INRANGE);
-    let tool_state = util::GET_POINTER_PEN_INFO.and_then(|GetPointerPenInfo| {
-        if unsafe { GetPointerPenInfo(pointer_info.pointerId, pen_info.as_mut_ptr()) != 0 } {
-            let info = unsafe { pen_info.assume_init() };
-            let pen_mask = |mask| {
-                if util::has_flag(info.penMask, mask) {
-                    Some(())
-                } else {
-                    None
-                }
-            };
-            Some(ToolState {
-                contact: util::has_flag(info.pointerInfo.pointerFlags, POINTER_FLAG_INCONTACT),
-                button1: util::has_flag(info.penFlags, PEN_FLAG_ERASER)
-                    || util::has_flag(info.penFlags, PEN_FLAG_INVERTED),
-                button2: util::has_flag(info.penFlags, PEN_FLAG_BARREL),
-                twist: pen_mask(PEN_MASK_ROTATION).map(|_| info.rotation as f64),
-                force: pen_mask(PEN_MASK_PRESSURE)
-                    .and(match info.pressure {
-                        0..=1024 => Some(Force::Normalized(info.pressure as f64 / 1024.)),
-                        _ => None,
-                    })
-                    .unwrap_or(Force::Normalized(1.)),
-                tangential_force: None,
-                angle: None,
-                tilt: pen_mask(PEN_MASK_TILT_X | PEN_MASK_TILT_Y)
-                    .map(|_| ToolTilt { x: info.tiltX as f64, y: info.tiltY as f64 }),
-            })
+    let info = util::GET_POINTER_PEN_INFO.and_then(|GetPointerPenInfo| unsafe {
+        if GetPointerPenInfo(pointer_info.pointerId, pen_info.as_mut_ptr()) != 0 {
+            Some(pen_info.assume_init())
         } else {
             None
         }
-    });
-    #[cfg(feature = "windows-ink")]
-    let tool_state = tool_state.and_then(|mut t| {
+    })?;
+    let pen_mask = |mask| {
+        if util::has_flag(info.penMask, mask) {
+            Some(())
+        } else {
+            None
+        }
+    };
+    let tool_state = ToolState {
+        contact: util::has_flag(info.pointerInfo.pointerFlags, POINTER_FLAG_INCONTACT),
+        button1: util::has_flag(info.penFlags, PEN_FLAG_ERASER)
+            || util::has_flag(info.penFlags, PEN_FLAG_INVERTED),
+        button2: util::has_flag(info.penFlags, PEN_FLAG_BARREL),
+        twist: pen_mask(PEN_MASK_ROTATION).map(|_| info.rotation as f64),
+        force: pen_mask(PEN_MASK_PRESSURE)
+            .and(match info.pressure {
+                0..=1024 => Some(Force::Normalized(info.pressure as f64 / 1024.)),
+                _ => None,
+            })
+            .unwrap_or(Force::Normalized(1.)),
+        tangential_force: None,
+        angle: None,
+        tilt: pen_mask(PEN_MASK_TILT_X | PEN_MASK_TILT_Y)
+            .map(|_| ToolTilt { x: info.tiltX as f64, y: info.tiltY as f64 }),
+    };
+
+    // If the WinRT API is enabled, replace twist/tilt/force with higher-precision values.
+    #[cfg(feature = "winrt-pen")]
+    let tool_state = {
+        let mut t = tool_state;
         let prop = windows::UI::Input::PointerPoint::GetCurrentPoint(pointer_info.pointerId)
             .and_then(|p| p.Properties())
             .ok()?;
-        println!("TOOL_STATE {t:?}");
-        t.twist = t.twist.and(prop.Twist().map(|t| t as f64).ok());
+        t.twist = tool_state.twist.and(prop.Twist().map(|t| t as f64).ok());
         t.tilt = t
             .tilt
             .and(Some(ToolTilt { x: prop.XTilt().ok()? as f64, y: prop.YTilt().ok()? as f64 }));
         t.force = Force::Normalized(prop.Pressure().unwrap_or(1.) as f64);
-        Some(t)
-    });
+        t
+    };
     println!("tool_state {tool_state:?}");
+
+    let last_tool_state = userdata.last_tool_state.replace(None);
+
+    if let Some(last_tool_state) = last_tool_state {
+    } else {
+        userdata.send_event(Event::WindowEvent {
+            window_id,
+            event: WindowEvent::PointerEntered { device_id: None, position, primary, kind },
+        });
+    }
+
+    if last_tool_state.is_some() && !in_range {
+        userdata.last_tool_state.set(None);
+    } else {
+        userdata.last_tool_state.set(Some(tool_state));
+    }
+
+    if !in_range && last_tool_state.is_some() {}
+    Some(())
 }
 
 fn handle_pointer_event_touch(userdata: &WindowData, data: PointerEventData) {
