@@ -1,27 +1,35 @@
 use dpi::{LogicalPosition, PhysicalPosition};
 use sctk::globals::GlobalData;
 use sctk::reexports::client::globals::{BindError, GlobalList};
-use sctk::reexports::client::protocol::{wl_seat::WlSeat, wl_surface::WlSurface};
+use sctk::reexports::client::protocol::wl_seat::WlSeat;
+use sctk::reexports::client::protocol::wl_surface::WlSurface;
 use sctk::reexports::client::{
     delegate_dispatch, event_created_child, Connection, Dispatch, Proxy, QueueHandle,
 };
-use sctk::reexports::protocols::wp::tablet::zv2::client::{
-    zwp_tablet_manager_v2::ZwpTabletManagerV2,
-    zwp_tablet_pad_group_v2::{ZwpTabletPadGroupV2, EVT_RING_OPCODE, EVT_STRIP_OPCODE},
-    zwp_tablet_pad_ring_v2::ZwpTabletPadRingV2,
-    zwp_tablet_pad_strip_v2::ZwpTabletPadStripV2,
-    zwp_tablet_pad_v2::{Event as PadEvent, ZwpTabletPadV2, EVT_GROUP_OPCODE},
-    zwp_tablet_seat_v2::{
-        Event as SeatEvent, ZwpTabletSeatV2, EVT_PAD_ADDED_OPCODE, EVT_TABLET_ADDED_OPCODE,
-        EVT_TOOL_ADDED_OPCODE,
-    },
-    zwp_tablet_tool_v2::{ButtonState, Event as ToolEvent, Type as WlToolType, ZwpTabletToolV2},
-    zwp_tablet_v2::{Event as TabletEvent, ZwpTabletV2},
+use sctk::reexports::protocols::wp::tablet::zv2::client::zwp_tablet_manager_v2::ZwpTabletManagerV2;
+use sctk::reexports::protocols::wp::tablet::zv2::client::zwp_tablet_pad_group_v2::{
+    ZwpTabletPadGroupV2, EVT_RING_OPCODE, EVT_STRIP_OPCODE,
+};
+use sctk::reexports::protocols::wp::tablet::zv2::client::zwp_tablet_pad_ring_v2::ZwpTabletPadRingV2;
+use sctk::reexports::protocols::wp::tablet::zv2::client::zwp_tablet_pad_strip_v2::ZwpTabletPadStripV2;
+use sctk::reexports::protocols::wp::tablet::zv2::client::zwp_tablet_pad_v2::{
+    Event as PadEvent, ZwpTabletPadV2, EVT_GROUP_OPCODE,
+};
+use sctk::reexports::protocols::wp::tablet::zv2::client::zwp_tablet_seat_v2::{
+    Event as SeatEvent, ZwpTabletSeatV2, EVT_PAD_ADDED_OPCODE, EVT_TABLET_ADDED_OPCODE,
+    EVT_TOOL_ADDED_OPCODE,
+};
+use sctk::reexports::protocols::wp::tablet::zv2::client::zwp_tablet_tool_v2::{
+    ButtonState, Event as ToolEvent, Type as WlToolType, ZwpTabletToolV2,
+};
+use sctk::reexports::protocols::wp::tablet::zv2::client::zwp_tablet_v2::{
+    Event as TabletEvent, ZwpTabletV2,
 };
 use wayland_client::WEnum;
 
 use crate::event::{
-    ButtonSource, DeviceId, ElementState, Force, PointerKind, PointerSource, ToolButton, ToolState, ToolTilt, ToolType, WindowEvent
+    ButtonSource, DeviceId, ElementState, Force, PointerKind, PointerSource, ToolButton, ToolState,
+    ToolTilt, WindowEvent,
 };
 use crate::platform_impl::wayland;
 use crate::platform_impl::wayland::state::WinitState;
@@ -44,6 +52,9 @@ pub struct ToolData {
     entered: bool,
     left: bool,
     button_events: Vec<(ToolButton, ElementState)>,
+    contact: bool,
+    button1: bool,
+    button2: bool,
 }
 
 impl TabletManager {
@@ -150,9 +161,11 @@ impl Dispatch<ZwpTabletToolV2, (), WinitState> for TabletManager {
                 data.moved = true;
             },
             ToolEvent::Down { .. } => {
+                data.contact = true;
                 data.button_events.push((ToolButton::Contact, ElementState::Pressed));
             },
             ToolEvent::Up => {
+                data.contact = false;
                 data.button_events.push((ToolButton::Contact, ElementState::Released));
             },
             ToolEvent::Tilt { tilt_x, tilt_y } => {
@@ -164,15 +177,24 @@ impl Dispatch<ZwpTabletToolV2, (), WinitState> for TabletManager {
                 data.moved = true;
             },
             ToolEvent::Button { button, state: WEnum::Value(btn_state), .. } => {
-                let button = match button {
-                    0x14b /* BTN_STYLUS */ => ToolButton::Button1,
-                    0x14c /* BTN_STYLUS2 */ => ToolButton::Button2,
-                    0x149 /* BTN_STYLUS3 */ => ToolButton::Button3,
-                    _ => ToolButton::Other(button as u16),
-                };
                 let state = match btn_state {
                     ButtonState::Pressed => ElementState::Pressed,
                     _ => ElementState::Released,
+                };
+                let button = match button {
+                    // BTN_STYLUS
+                    0x14b => {
+                        data.button1 = state.is_pressed();
+                        ToolButton::Button1
+                    },
+                    // BTN_STYLUS2
+                    0x14c => {
+                        data.button2 = state.is_pressed();
+                        ToolButton::Button2
+                    },
+                    // BTN_STYLUS3
+                    0x149 => ToolButton::Button3,
+                    _ => ToolButton::Other(button as u16),
                 };
                 data.button_events.push((button, state));
             },
@@ -188,10 +210,6 @@ impl Dispatch<ZwpTabletToolV2, (), WinitState> for TabletManager {
                 };
                 let device_id = Some(DeviceId::from_raw(data.device_id));
                 // TODO should we handle the others, too?
-                let typ = match data.typ {
-                    Some(WlToolType::Eraser) => ToolType::Eraser,
-                    _ => ToolType::Pen,
-                };
                 if data.entered {
                     data.entered = false;
                     state.events_sink.push_window_event(
@@ -199,7 +217,7 @@ impl Dispatch<ZwpTabletToolV2, (), WinitState> for TabletManager {
                             device_id,
                             position,
                             primary: true,
-                            kind: PointerKind::Tool(typ),
+                            kind: PointerKind::Tool,
                         },
                         window_id,
                     );
@@ -215,7 +233,9 @@ impl Dispatch<ZwpTabletToolV2, (), WinitState> for TabletManager {
                         twist: data.rotation,
                         tilt: data.tilt.map(|(x, y)| ToolTilt { x, y }),
                         angle: None,
-                        typ,
+                        contact: data.contact,
+                        button1: data.button1,
+                        button2: data.button2,
                     });
                     state.events_sink.push_window_event(
                         WindowEvent::PointerMoved { device_id, position, primary: true, source },
@@ -229,19 +249,22 @@ impl Dispatch<ZwpTabletToolV2, (), WinitState> for TabletManager {
                             device_id,
                             position: Some(position),
                             primary: true,
-                            kind: PointerKind::Tool(typ),
+                            kind: PointerKind::Tool,
                         },
                         window_id,
                     );
                 }
                 for (button, btn_state) in data.button_events.iter() {
-                    state.events_sink.push_window_event(WindowEvent::PointerButton {
-                        device_id,
-                        state: *btn_state,
-                        position,
-                        primary: true,
-                        button: ButtonSource::Tool(*button),
-                    }, window_id);
+                    state.events_sink.push_window_event(
+                        WindowEvent::PointerButton {
+                            device_id,
+                            state: *btn_state,
+                            position,
+                            primary: true,
+                            button: ButtonSource::Tool(*button),
+                        },
+                        window_id,
+                    );
                 }
                 data.button_events.clear();
             },

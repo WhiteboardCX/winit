@@ -2727,7 +2727,7 @@ fn handle_pointer_event_pen(userdata: &WindowData, data: PointerEventData) -> Op
     };
 
     // TODO the buttons behave somewhat strange. For example, when pressing the eraser button,
-    // the status is only `inverted` until bringing the pen down. Windows Ink seems to 
+    // the status is only `inverted` until bringing the pen down. Windows Ink seems to
     // pretend that the pen has the eraser on the back. Consequenlty, pressing the eraser button
     // always causes a leave event, even if the pen stays on the surface.
     let tool_state = ToolState {

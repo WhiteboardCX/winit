@@ -30,12 +30,11 @@ use crate::platform_impl::wayland::seat::{
 };
 use crate::platform_impl::wayland::types::kwin_blur::KWinBlurManager;
 use crate::platform_impl::wayland::types::wp_fractional_scaling::FractionalScalingManager;
+use crate::platform_impl::wayland::types::wp_tablet::{TabletManager, ToolData};
 use crate::platform_impl::wayland::types::wp_viewporter::ViewporterState;
 use crate::platform_impl::wayland::types::xdg_activation::XdgActivationState;
 use crate::platform_impl::wayland::window::{WindowRequests, WindowState};
 use crate::platform_impl::wayland::WindowId;
-
-use crate::platform_impl::wayland::types::wp_tablet::{TabletManager, ToolData};
 
 /// Winit's Wayland state.
 pub struct WinitState {
@@ -164,7 +163,7 @@ impl WinitState {
                 (None, None)
             };
 
-        //TODO handle None
+        // TODO handle None
         let tablet_manager = TabletManager::new(globals, queue_handle).ok();
 
         let shm = Shm::bind(globals, queue_handle).map_err(|err| os_error!(err))?;
