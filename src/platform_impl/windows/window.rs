@@ -1147,7 +1147,8 @@ impl InitData<'_> {
             _file_drop_handler: file_drop_handler,
             userdata_removed: Cell::new(false),
             recurse_depth: Cell::new(0),
-            last_tool_state: Default::default()
+            last_tool_state: Cell::new(None),
+            tool_was_in_range: Cell::new(false),
         }
     }
 

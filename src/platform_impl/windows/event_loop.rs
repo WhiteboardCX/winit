@@ -31,10 +31,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
 };
 use windows_sys::Win32::UI::Input::Pointer::{
-    POINTER_FLAG_DOWN, POINTER_FLAG_FIFTHBUTTON, POINTER_FLAG_FIRSTBUTTON,
-    POINTER_FLAG_FOURTHBUTTON, POINTER_FLAG_INCONTACT, POINTER_FLAG_INRANGE, POINTER_FLAG_NEW,
-    POINTER_FLAG_PRIMARY, POINTER_FLAG_SECONDBUTTON, POINTER_FLAG_THIRDBUTTON, POINTER_FLAG_UP,
-    POINTER_FLAG_UPDATE, POINTER_INFO,
+    POINTER_FLAG_DOWN, POINTER_FLAG_INCONTACT, POINTER_FLAG_INRANGE, POINTER_FLAG_PRIMARY,
+    POINTER_FLAG_UP, POINTER_FLAG_UPDATE, POINTER_INFO,
 };
 use windows_sys::Win32::UI::Input::Touch::{
     CloseTouchInputHandle, GetTouchInputInfo, TOUCHEVENTF_DOWN, TOUCHEVENTF_MOVE,
@@ -56,11 +54,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_IME_SETCONTEXT, WM_IME_STARTCOMPOSITION, WM_INPUT, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MENUCHAR, WM_MOUSEHWHEEL,
     WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCACTIVATE, WM_NCCALCSIZE, WM_NCCREATE, WM_NCDESTROY,
-    WM_NCLBUTTONDOWN, WM_PAINT, WM_POINTERDOWN, WM_POINTERENTER, WM_POINTERLEAVE, WM_POINTERUP,
-    WM_POINTERUPDATE, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SETTINGCHANGE,
-    WM_SIZE, WM_SIZING, WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TOUCH, WM_WINDOWPOSCHANGED,
-    WM_WINDOWPOSCHANGING, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSEXW, WS_EX_LAYERED,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP, WS_VISIBLE,
+    WM_NCLBUTTONDOWN, WM_PAINT, WM_POINTERDOWN, WM_POINTERUP, WM_POINTERUPDATE, WM_RBUTTONDOWN,
+    WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SIZING, WM_SYSCOMMAND,
+    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TOUCH, WM_WINDOWPOSCHANGED, WM_WINDOWPOSCHANGING,
+    WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP, WS_VISIBLE,
 };
 
 use super::window::set_skip_taskbar;
@@ -70,7 +68,7 @@ use crate::dpi::{PhysicalPosition, PhysicalSize};
 use crate::error::{EventLoopError, RequestError};
 use crate::event::{
     ButtonSource, ElementState, Event, FingerId, Force, Ime, PointerKind, PointerSource,
-    RawKeyEvent, SurfaceSizeWriter, ToolState, ToolTilt, TouchPhase, WindowEvent,
+    RawKeyEvent, SurfaceSizeWriter, ToolButton, ToolState, ToolTilt, TouchPhase, WindowEvent,
 };
 use crate::event_loop::{
     ActiveEventLoop as RootActiveEventLoop, ControlFlow, DeviceEvents,
@@ -108,6 +106,7 @@ pub(crate) struct WindowData {
     pub userdata_removed: Cell<bool>,
     pub recurse_depth: Cell<u32>,
     pub last_tool_state: Cell<Option<ToolState>>,
+    pub tool_was_in_range: Cell<bool>,
 }
 
 impl WindowData {
@@ -2078,9 +2077,6 @@ unsafe fn public_window_callback_inner(
 
         WM_POINTERDOWN | WM_POINTERUPDATE | WM_POINTERUP => {
             // TODO do we need? | WM_POINTERENTER | WM_POINTERLEAVE
-            use crate::event::ElementState::{Pressed, Released};
-            use crate::event::{ButtonSource, PointerKind, PointerSource};
-
             if let (
                 Some(GetPointerFrameInfoHistory),
                 Some(SkipPointerFrameMessages),
@@ -2709,10 +2705,12 @@ fn handle_pointer_event_pen(userdata: &WindowData, data: PointerEventData) -> Op
     let kind = PointerKind::Tool;
     let pointer_info = data.pointer_info;
     let window_id = data.window_id;
+    let device_id = None;
     let primary = data.primary;
     let position = data.position;
     let mut pen_info = mem::MaybeUninit::uninit();
     let in_range = util::has_flag(pointer_info.pointerFlags, POINTER_FLAG_INRANGE);
+    let is_update = util::has_flag(pointer_info.pointerFlags, POINTER_FLAG_UPDATE);
     let info = util::GET_POINTER_PEN_INFO.and_then(|GetPointerPenInfo| unsafe {
         if GetPointerPenInfo(pointer_info.pointerId, pen_info.as_mut_ptr()) != 0 {
             Some(pen_info.assume_init())
@@ -2727,6 +2725,11 @@ fn handle_pointer_event_pen(userdata: &WindowData, data: PointerEventData) -> Op
             None
         }
     };
+
+    // TODO the buttons behave somewhat strange. For example, when pressing the eraser button,
+    // the status is only `inverted` until bringing the pen down. Windows Ink seems to 
+    // pretend that the pen has the eraser on the back. Consequenlty, pressing the eraser button
+    // always causes a leave event, even if the pen stays on the surface.
     let tool_state = ToolState {
         contact: util::has_flag(info.pointerInfo.pointerFlags, POINTER_FLAG_INCONTACT),
         button1: util::has_flag(info.penFlags, PEN_FLAG_ERASER)
@@ -2759,25 +2762,60 @@ fn handle_pointer_event_pen(userdata: &WindowData, data: PointerEventData) -> Op
         t.force = Force::Normalized(prop.Pressure().unwrap_or(1.) as f64);
         t
     };
-    println!("tool_state {tool_state:?}");
+    // println!("{is_update} {in_range} {tool_state:?}");
 
     let last_tool_state = userdata.last_tool_state.replace(None);
 
-    if let Some(last_tool_state) = last_tool_state {
-    } else {
-        userdata.send_event(Event::WindowEvent {
-            window_id,
-            event: WindowEvent::PointerEntered { device_id: None, position, primary, kind },
+    let send_window_event = |event| userdata.send_event(Event::WindowEvent { window_id, event });
+
+    if in_range && !userdata.tool_was_in_range.get() {
+        send_window_event(WindowEvent::PointerEntered { device_id, position, primary, kind });
+        userdata.tool_was_in_range.set(true);
+    }
+
+    if is_update {
+        send_window_event(WindowEvent::PointerMoved {
+            device_id,
+            position,
+            primary,
+            source: PointerSource::Tool(tool_state),
         });
     }
 
-    if last_tool_state.is_some() && !in_range {
-        userdata.last_tool_state.set(None);
-    } else {
-        userdata.last_tool_state.set(Some(tool_state));
+    if let Some(last_tool_state) = last_tool_state {
+        let handle_button_change = |button, last, curr| match (last, curr) {
+            (true, false) => send_window_event(WindowEvent::PointerButton {
+                device_id,
+                state: ElementState::Released,
+                position,
+                primary,
+                button: ButtonSource::Tool(button),
+            }),
+            (false, true) => send_window_event(WindowEvent::PointerButton {
+                device_id,
+                state: ElementState::Pressed,
+                position,
+                primary,
+                button: ButtonSource::Tool(button),
+            }),
+            _ => (),
+        };
+
+        handle_button_change(ToolButton::Contact, last_tool_state.contact, tool_state.contact);
+        handle_button_change(ToolButton::Button1, last_tool_state.button1, tool_state.button1);
+        handle_button_change(ToolButton::Button2, last_tool_state.button2, tool_state.button2);
     }
 
-    if !in_range && last_tool_state.is_some() {}
+    if userdata.tool_was_in_range.get() && !in_range {
+        send_window_event(WindowEvent::PointerLeft {
+            device_id,
+            position: Some(position),
+            primary,
+            kind,
+        });
+        userdata.tool_was_in_range.set(false);
+    }
+    userdata.last_tool_state.set(Some(tool_state));
     Some(())
 }
 
